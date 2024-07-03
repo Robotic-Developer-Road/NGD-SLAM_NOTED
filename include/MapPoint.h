@@ -170,6 +170,7 @@ public:
     // Variables used by the tracking
     float mTrackProjX;
     float mTrackProjY;
+    float mTrackProjZ;
     float mTrackDepth;
     float mTrackDepthR;
     float mTrackProjXR;

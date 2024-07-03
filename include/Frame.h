@@ -37,6 +37,7 @@
 #include <opencv2/opencv.hpp>
 
 #include "Eigen/Core"
+#include "Eigen/Dense"
 #include "sophus/se3.hpp"
 
 namespace ORB_SLAM3
@@ -54,15 +55,21 @@ class Frame
 {
 public:
     Frame();
+    ~Frame() = default;
 
     // Copy constructor.
     Frame(const Frame &frame);
+
+    Frame(bool idPlus);
 
     // Constructor for stereo cameras.
     Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeStamp, ORBextractor* extractorLeft, ORBextractor* extractorRight, ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, GeometricCamera* pCamera,Frame* pPrevF = static_cast<Frame*>(NULL), const IMU::Calib &ImuCalib = IMU::Calib());
 
     // Constructor for RGB-D cameras.
-    Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, GeometricCamera* pCamera,Frame* pPrevF = static_cast<Frame*>(NULL), const IMU::Calib &ImuCalib = IMU::Calib());
+    Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, GeometricCamera* pCamera, bool idPlus, Frame* pPrevF = static_cast<Frame*>(NULL), const IMU::Calib &ImuCalib = IMU::Calib());
+
+    // Constructor for RGB-D cameras (dyanmic mode).
+    Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const cv::Mat &imMask, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, GeometricCamera* pCamera, bool idPlus, Frame* pPrevF = static_cast<Frame*>(NULL), const IMU::Calib &ImuCalib = IMU::Calib());
 
     // Constructor for Monocular cameras.
     Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, GeometricCamera* pCamera, cv::Mat &distCoef, const float &bf, const float &thDepth, Frame* pPrevF = static_cast<Frame*>(NULL), const IMU::Calib &ImuCalib = IMU::Calib());
@@ -194,6 +201,9 @@ public:
 
     // Feature extractor. The right is used only in the stereo case.
     ORBextractor* mpORBextractorLeft, *mpORBextractorRight;
+
+    // Is keyframe or not
+    bool mbIsKeyFrame;
 
     // Frame timestamp.
     double mTimeStamp;

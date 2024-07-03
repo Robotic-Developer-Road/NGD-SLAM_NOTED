@@ -593,6 +593,7 @@ void Tracking::newParameterLoader(Settings *settings) {
     float fScaleFactor = settings->scaleFactor();
 
     mpORBextractorLeft = new ORBextractor(nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
+    mpORBextractorDyna = new ORBextractor(nFeatures*1.5,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
 
     if(mSensor==System::STEREO || mSensor==System::IMU_STEREO)
         mpORBextractorRight = new ORBextractor(nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
@@ -1281,6 +1282,7 @@ bool Tracking::ParseORBParamFile(cv::FileStorage &fSettings)
     }
 
     mpORBextractorLeft = new ORBextractor(nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
+    mpORBextractorDyna = new ORBextractor(nFeatures*1.5,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
 
     if(mSensor==System::STEREO || mSensor==System::IMU_STEREO)
         mpORBextractorRight = new ORBextractor(nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
@@ -1434,6 +1436,11 @@ void Tracking::SetLoopClosing(LoopClosing *pLoopClosing)
     mpLoopClosing=pLoopClosing;
 }
 
+void Tracking::SetYOLO(YOLO* pYOLO)
+{
+    mpYOLO=pYOLO;
+}
+
 void Tracking::SetViewer(Viewer *pViewer)
 {
     mpViewer=pViewer;
@@ -1517,10 +1524,12 @@ Sophus::SE3f Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat 
 }
 
 
-Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const double &timestamp, string filename)
+Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB, const cv::Mat &imD, const double &timestamp, string filename)
 {
     mImGray = imRGB;
-    cv::Mat imDepth = imD;
+    mImDepth = imD;
+    mImRGB = imRGB.clone();
+    mImDepth2 = imD.clone();
 
     if(mImGray.channels()==3)
     {
@@ -1537,27 +1546,112 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
             cvtColor(mImGray,mImGray,cv::COLOR_BGRA2GRAY);
     }
 
-    if((fabs(mDepthMapFactor-1.0f)>1e-5) || imDepth.type()!=CV_32F)
-        imDepth.convertTo(imDepth,CV_32F,mDepthMapFactor);
+    if((fabs(mDepthMapFactor-1.0f)>1e-5) || mImDepth.type()!=CV_32F)
+        mImDepth.convertTo(mImDepth,CV_32F,mDepthMapFactor);
 
-    if (mSensor == System::RGBD)
-        mCurrentFrame = Frame(mImGray,imDepth,timestamp,mpORBextractorLeft,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth,mpCamera);
-    else if(mSensor == System::IMU_RGBD)
-        mCurrentFrame = Frame(mImGray,imDepth,timestamp,mpORBextractorLeft,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth,mpCamera,&mLastFrame,*mpImuCalib);
-
-
-
-
-
-
-    mCurrentFrame.mNameFile = filename;
-    mCurrentFrame.mnDataset = mnNumDataset;
+    if((fabs(mDepthMapFactor-1.0f)>1e-5) || mImDepth2.type()!=CV_32F)
+        mImDepth2.convertTo(mImDepth2,CV_32F,mDepthMapFactor);
 
 #ifdef REGISTER_TIMES
     vdORBExtract_ms.push_back(mCurrentFrame.mTimeORB_Ext);
 #endif
 
-    Track();
+    auto track_start = std::chrono::high_resolution_clock::now(); //****************************************
+
+    bool RGBDInitialized = false;
+    if(mFrameNum > 3) RGBDInitialized = true;
+
+    if(RGBDInitialized) mbStartOpticalFlow = true;
+    else mbStartOpticalFlow = false;
+
+    mpYOLO->InsertInput(mImRGB, mImDepth2);
+
+    // Dynamic Tracking
+    while(true)
+    {
+        std::vector<cv::Mat> outputYOLO = mpYOLO->GetOutput();
+        
+        if(outputYOLO.size() == 2 && mFrameNum == 1)
+        {
+            mImMask = outputYOLO[1];
+            break;
+        }
+        else if(outputYOLO.size() == 2 && mFrameNum > 1)
+        {
+            Eigen::Quaternionf q = mLastFrameLK.GetPose().unit_quaternion();
+            float roll = std::atan2(2.0 * (q.w() * q.z() + q.x() * q.y()), 1.0 - 2.0 * (q.z() * q.z() + q.x() * q.x()));
+            float rollDeg = roll * 180.0 / CV_PI;
+            bool isLargeRotation = std::abs(rollDeg > 10);
+
+            int maskSizeYOLO = cv::countNonZero(outputYOLO[1]);
+            int maskSizeLast = cv::countNonZero(mImMaskLastKey);
+            if(maskSizeYOLO == 0 && maskSizeLast > 0 && isLargeRotation) break;
+
+            mImGrayLastKey = outputYOLO[0];
+            mImMaskLastKey = outputYOLO[1];
+            break;
+        }
+        else if(mFrameNum > 1) break;
+    }
+    if(mFrameNum > 1) PredictCurrentMask();
+
+    // Static Tracking
+    if(mbStartOpticalFlow)
+    {
+        // Define new frame without ORB features
+        mCurrentFrame = Frame(mbStartOpticalFlow);
+        mCurrentFrame.mTimeStamp = timestamp;
+
+        TrackWithOpticalFlow();
+    }
+
+    if(!RGBDInitialized) mbNeedKF = true;
+    else if(RGBDInitialized) mbNeedKF = NeedNewKeyFrame();
+
+    // Keyframe Tracking
+    if(mbNeedKF)
+    {
+        Sophus::SE3f Tcw;
+        if(mbStartOpticalFlow) Tcw = mCurrentFrame.GetPose();
+
+        if(cv::countNonZero(mImMask)!=0 || cv::countNonZero(mImMaskLastKey)!=0) mpORBextractorTmp = mpORBextractorDyna;
+        else mpORBextractorTmp = mpORBextractorLeft;
+
+        // Define new frame with ORB features
+        if(mSensor == System::RGBD)
+            mCurrentFrame = Frame(mImGray,mImDepth,mImMask,timestamp,mpORBextractorTmp,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth,mpCamera,!mbStartOpticalFlow);
+        else if(mSensor == System::IMU_RGBD)
+            mCurrentFrame = Frame(mImGray,mImDepth,mImMask,timestamp,mpORBextractorTmp,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth,mpCamera,!mbStartOpticalFlow,&mLastFrame,*mpImuCalib);
+
+        if(mbStartOpticalFlow) mCurrentFrame.SetPose(Tcw);
+        
+        Track();
+    }
+    else
+    {
+        // Save camera trajectory.
+        if(!mCurrentFrame.mpReferenceKF) mCurrentFrame.mpReferenceKF = mpReferenceKF;
+        Sophus::SE3f Tcr_ = mCurrentFrame.GetPose() * mCurrentFrame.mpReferenceKF->GetPoseInverse();
+        mlRelativeFramePoses.push_back(Tcr_);
+        mlpReferences.push_back(mCurrentFrame.mpReferenceKF);
+        mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
+        mlbLost.push_back(mState==LOST);
+    }
+
+    mVelocityLK = mCurrentFrame.GetPose() * mLastFrameLK.GetPose().inverse();
+    mImGrayLastKey = mImGray.clone();
+    mImMaskLastKey = mImMask.clone();
+
+    // Record last frame (used by TrackWithOpticalFlow)
+    mImGrayLastLK = mImGray;
+    mLastFrameLK = Frame(mCurrentFrame);
+    mFrameNum++;
+
+    auto track_end = std::chrono::high_resolution_clock::now(); //******************************************
+    std::chrono::duration<double, std::milli> track_duration = track_end - track_start;
+    mTotalTrackTime += track_duration.count();
+    std::cout << "Average processing time of GrabImageRGBD(): " << mTotalTrackTime / (double)(mFrameNum-1) << "ms" << std::endl;
+    std::cout << "Frame " << mCurrentFrame.mnId << " end" << std::endl;
 
     return mCurrentFrame.GetPose();
 }
@@ -2128,7 +2222,7 @@ void Tracking::Track()
 
             }
             if(!bOK)
-                cout << "Fail to track local map!" << endl;
+                cout << "Fail to track local map!!!!!!!!!!!!!!!" << endl;
         }
         else
         {
@@ -2241,13 +2335,16 @@ void Tracking::Track()
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_StartNewKF = std::chrono::steady_clock::now();
 #endif
-            bool bNeedKF = NeedNewKeyFrame();
+            // bool mbNeedKF = NeedNewKeyFrame();
 
             // Check if we need to insert a new keyframe
-            // if(bNeedKF && bOK)
-            if(bNeedKF && (bOK || (mInsertKFsLost && mState==RECENTLY_LOST &&
+            // if(mbNeedKF && bOK)
+            if(mbNeedKF && (bOK || (mInsertKFsLost && mState==RECENTLY_LOST &&
                                    (mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD))))
+            {
+                // std::cout << "Create a new key frame" << std::endl;
                 CreateNewKeyFrame();
+            }
 
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_EndNewKF = std::chrono::steady_clock::now();
@@ -2857,7 +2954,7 @@ bool Tracking::TrackWithMotionModel()
 
     // Update last frame pose according to its reference keyframe
     // Create "visual odometry" points if in Localization Mode
-    UpdateLastFrame();
+    // UpdateLastFrame();
 
     if (mpAtlas->isImuInitialized() && (mCurrentFrame.mnId>mnLastRelocFrameId+mnFramesToResetIMU))
     {
@@ -2865,7 +2962,7 @@ bool Tracking::TrackWithMotionModel()
         PredictStateIMU();
         return true;
     }
-    else
+    else if (!mbStartOpticalFlow)
     {
         mCurrentFrame.SetPose(mVelocity * mLastFrame.GetPose());
     }
@@ -2944,6 +3041,114 @@ bool Tracking::TrackWithMotionModel()
         return true;
     else
         return nmatchesMap>=10;
+}
+
+bool Tracking::TrackWithOpticalFlow()
+{
+    ORBmatcher matcher(0.9,true);
+    int nmatches = matcher.SearchByOpticalFlow(mCurrentFrame, mLastFrameLK, mImGray, mImGrayLastLK, mImMask);
+
+    if(nmatches < 20)
+    {
+        std::cout << "Not enough matches for SearchByOpticalFlow() !!" << std::endl;
+        mnMatchesInliers = 0;
+        return false;
+    }
+
+    // ---------- Convert points to cv type ----------
+    std::vector<cv::Point2f> currKeyPoints;
+    std::vector<cv::Point3f> currMapPoints;
+
+    for (int i=0; i < mCurrentFrame.mvpMapPoints.size(); i++)
+    {
+        cv::Point3f position_cv;
+        Eigen::Vector3f position_eigen;
+        position_eigen = mCurrentFrame.mvpMapPoints[i]->GetWorldPos();
+        position_cv.x = static_cast<float>(position_eigen[0]);
+        position_cv.y = static_cast<float>(position_eigen[1]);
+        position_cv.z = static_cast<float>(position_eigen[2]);
+
+        currKeyPoints.push_back(mCurrentFrame.mvKeysUn[i].pt);
+        currMapPoints.push_back(position_cv);
+    }
+
+    // ---------- Estimate pose by PnP Ransac ----------
+    std::vector<int> ransacInlier;
+    cv::Mat R_vector, R;
+    Sophus::SE3f initTcw = mVelocityLK * mLastFrameLK.GetPose();
+
+    Eigen::Matrix3f r_eigen = initTcw.rotationMatrix();
+    Eigen::Vector3f t_eigen = initTcw.translation();
+
+    cv::Mat R_matrix(3, 3, CV_32F);
+    cv::Mat T(3, 1, CV_32F);
+
+    std::memcpy(R_matrix.data, r_eigen.data(), 3 * 3 * sizeof(float));
+    std::memcpy(T.data, t_eigen.data(), 3 * sizeof(float));
+    cv::Rodrigues(R_matrix, R_vector);
+
+    cv::solvePnPRansac(currMapPoints, currKeyPoints, mK, mDistCoef , R_vector, T, false, 100, 5, 0.99, ransacInlier, cv::SOLVEPNP_ITERATIVE);
+    cv::Rodrigues(R_vector, R);
+
+    cv::Mat R_float, T_float;
+    R.convertTo(R_float, CV_32F);
+    T.convertTo(T_float, CV_32F);
+
+    Eigen::Matrix3f rotation;
+    Eigen::Vector3f translation;
+    rotation << R_float.at<float>(0,0), R_float.at<float>(0,1), R_float.at<float>(0,2),
+                R_float.at<float>(1,0), R_float.at<float>(1,1), R_float.at<float>(1,2),
+                R_float.at<float>(2,0), R_float.at<float>(2,1), R_float.at<float>(2,2);
+    translation << T_float.at<float>(0), T_float.at<float>(1), T_float.at<float>(2);
+    Sophus::SE3f currTcw = Sophus::SE3f(rotation, translation);
+
+    // ---------- Draw extracted LK points and get inliers ----------
+    cv::Mat imgWithLKPoints = mImGray.clone();
+
+    if (imgWithLKPoints.channels() == 1)
+    {
+        cv::cvtColor(imgWithLKPoints, imgWithLKPoints, cv::COLOR_GRAY2BGR);
+    }
+
+    std::set<int> inliersSet(ransacInlier.begin(), ransacInlier.end());
+    std::vector<cv::KeyPoint> filteredKeysUn;
+    std::vector<MapPoint*> filteredMapPoints;
+
+    for (int i = 0; i < currKeyPoints.size(); ++i)
+    {
+        if (inliersSet.find(i) != inliersSet.end())
+        {
+            filteredKeysUn.push_back(mCurrentFrame.mvKeysUn[i]);
+            filteredMapPoints.push_back(mCurrentFrame.mvpMapPoints[i]);
+            cv::circle(imgWithLKPoints, currKeyPoints[i], 5, cv::Scalar(0, 255, 0), 1);
+            cv::circle(imgWithLKPoints, currKeyPoints[i], 1, cv::Scalar(0, 255, 0), -1);
+        }
+    }
+
+    Sophus::SE3f currVelocity = currTcw * mLastFrameLK.GetPose().inverse();
+
+    float currVeloMagnitude = currVelocity.translation().norm();
+    float lastVeloMagnitude = mVelocityLK.translation().norm();
+
+    if (currVeloMagnitude > 3 * lastVeloMagnitude && currVeloMagnitude > 0.05)
+    {
+        mnMatchesInliers = 0;
+        mCurrentFrame.SetPose(initTcw);
+    }
+    else
+    {       
+        mnMatchesInliers = ransacInlier.size();
+        mCurrentFrame.SetPose(currTcw);
+    }
+
+    mCurrentFrame.mvKeysUn = std::move(filteredKeysUn);
+    mCurrentFrame.mvpMapPoints = std::move(filteredMapPoints);
+    mCurrentFrame.N = mCurrentFrame.mvKeysUn.size();
+
+    mpFrameDrawer->SetLKFrame(imgWithLKPoints);
+    mpFrameDrawer->Update(this);
+
+    return mnMatchesInliers>=20;
 }
 
 bool Tracking::TrackLocalMap()
@@ -3061,6 +3266,7 @@ bool Tracking::TrackLocalMap()
     }
 }
 
+
 bool Tracking::NeedNewKeyFrame()
 {
     if((mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD) && !mpAtlas->GetCurrentMap()->isImuInitialized())
@@ -3078,10 +3284,6 @@ bool Tracking::NeedNewKeyFrame()
 
     // If Local Mapping is freezed by a Loop Closure do not insert keyframes
     if(mpLocalMapper->isStopped() || mpLocalMapper->stopRequested()) {
-        /*if(mSensor == System::MONOCULAR)
-        {
-            std::cout << "NeedNewKeyFrame: localmap stopped" << std::endl;
-        }*/
         return false;
     }
 
@@ -3131,14 +3333,6 @@ bool Tracking::NeedNewKeyFrame()
     if(nKFs<2)
         thRefRatio = 0.4f;
 
-    /*int nClosedPoints = nTrackedClose + nNonTrackedClose;
-    const int thStereoClosedPoints = 15;
-    if(nClosedPoints < thStereoClosedPoints && (mSensor==System::STEREO || mSensor==System::IMU_STEREO))
-    {
-        //Pseudo-monocular, there are not enough close points to be confident about the stereo observations.
-        thRefRatio = 0.9f;
-    }*/
-
     if(mSensor==System::MONOCULAR)
         thRefRatio = 0.9f;
 
@@ -3184,7 +3378,9 @@ bool Tracking::NeedNewKeyFrame()
     else
         c4=false;
 
-    if(((c1a||c1b||c1c) && c2)||c3 ||c4)
+    bool c5 = mbStartOpticalFlow && (mnMatchesInliers<20 || (mnMatchesInliers<75 && mCurrentFrame.mnId>mnLastKeyFrameId+5) || (mnMatchesInliers<300 && mCurrentFrame.mnId>mnLastKeyFrameId+30));
+
+    if(((c1a||c1b||c1c) && c2)||c3 ||c4 ||c5)
     {
         // If the mapping accepts keyframes, insert keyframe.
         // Otherwise send a signal to interrupt BA
@@ -3213,6 +3409,7 @@ bool Tracking::NeedNewKeyFrame()
         return false;
 }
 
+
 void Tracking::CreateNewKeyFrame()
 {
     if(mpLocalMapper->IsInitializing() && !mpAtlas->isImuInitialized())
@@ -3229,6 +3426,7 @@ void Tracking::CreateNewKeyFrame()
     pKF->SetNewBias(mCurrentFrame.mImuBias);
     mpReferenceKF = pKF;
     mCurrentFrame.mpReferenceKF = pKF;
+    mCurrentFrame.mbIsKeyFrame = true;
 
     if(mpLastKeyFrame)
     {
@@ -3821,6 +4019,7 @@ void Tracking::Reset(bool bLocMap)
     mbSetInit=false;
 
     mlRelativeFramePoses.clear();
+    mlRelativeFramePosesLK.clear();
     mlpReferences.clear();
     mlFrameTimes.clear();
     mlbLost.clear();
@@ -4082,6 +4281,316 @@ float Tracking::GetImageScale()
 {
     return mImageScale;
 }
+
+
+void Tracking::PredictCurrentMask()
+{
+    std::vector<cv::KeyPoint> lastKeyPoints;
+    std::vector<cv::Point2f> lastDynaPoints, currDynaPoints;
+    std::vector<cv::Point3f> trackedDynaPoints;
+    std::map<int, std::vector<cv::Point3f>> clusters;
+    std::vector<unsigned char> status;
+    std::vector<float> error;
+
+    mImMask = cv::Mat::zeros(mImMaskLastKey.size(), CV_8UC1); // Static background is 0
+
+    // Apply erosion for last key frame mask
+    int erosionSize = 5;
+    cv::Mat erosionElement = cv::getStructuringElement(cv::MORPH_RECT,
+                                                       cv::Size(2 * erosionSize + 1, 2 * erosionSize + 1),
+                                                       cv::Point(erosionSize, erosionSize));
+    erode(mImMaskLastKey, mImMaskLastKey, erosionElement);
+
+    ExtractDynaPoints(lastDynaPoints, mImGrayLastKey, mImMaskLastKey, 15);
+
+    if(!lastDynaPoints.empty())
+    {
+        cv::calcOpticalFlowPyrLK(mImGrayLastKey, mImGray, lastDynaPoints, currDynaPoints, status, error);
+
+        for(size_t j = 0; j < status.size(); ++j)
+        {
+            if(status[j]) 
+            {
+                float depth = mImDepth2.at<float>(currDynaPoints[j].y, currDynaPoints[j].x);
+                if (depth >= 0.05) trackedDynaPoints.push_back(cv::Point3f(currDynaPoints[j].x, currDynaPoints[j].y, depth));
+            }
+        }
+
+        ClusterWithDBSCAN(clusters, trackedDynaPoints, 50.0f, 15);
+        CreateMaskFromClusters(clusters);
+    }
+}
+
+
+void Tracking::ComputePixelPotential(int& potential, const cv::Point2f& pixel, const cv::Mat& imGray)
+{
+    // Define the Bresenham circle of radius 3 around the pixel
+    std::vector<cv::Point2f> circleOffsets = { cv::Point2f(-3, 0), cv::Point2f(0, 3), cv::Point2f(3, 0), cv::Point2f(0, -3) };
+
+    // Ensure the pixel is within the valid range
+    for (const cv::Point2f& offset : circleOffsets)
+    {
+        if (pixel.x + offset.x < 0 || pixel.x + offset.x >= imGray.cols ||
+            pixel.y + offset.y < 0 || pixel.y + offset.y >= imGray.rows)
+        {
+            potential = -1;
+        }
+    }
+    potential = 0;
+
+    int centerIntensity = (int)imGray.at<uchar>(pixel.y, pixel.x);
+    int isBrighter, isDarker;
+    int brightLowerBound = -1;
+    int darkLowerBound = -1;
+
+    // Examine each pixel in the circle
+    for (const cv::Point2f& offset : circleOffsets) {
+        int x = pixel.x + offset.x;
+        int y = pixel.y + offset.y;
+        int intensity = (int)imGray.at<uchar>(y, x);
+
+        if (intensity > centerIntensity)
+        {
+            int diff = intensity - centerIntensity;
+            if (diff < brightLowerBound || brightLowerBound == -1) brightLowerBound = diff;
+            isBrighter++;
+        }
+        else if (intensity < centerIntensity)
+        {
+            int diff = centerIntensity - intensity;
+            if (diff < darkLowerBound || darkLowerBound == -1) darkLowerBound = diff;
+            isDarker++;
+        }
+    }
+
+    if (isBrighter >= 3) potential = 200 + brightLowerBound;
+    else if (isDarker >= 3) potential = 200 + darkLowerBound;
+    else potential = std::max(brightLowerBound, darkLowerBound);
+}
+
+
+void Tracking::ExtractDynaPoints(std::vector<cv::Point2f>& dynapoints, const cv::Mat& imGray, const cv::Mat& imMask, int cellSize)
+{
+    dynapoints.clear();
+    int threshold = 250;
+
+    for (int y = 0; y < imGray.rows; y += cellSize)
+    {
+        for (int x = 0; x < imGray.cols; x += cellSize) 
+        {
+            int maxPotential = -1;
+            cv::Point2f bestPixel(-1, -1);
+
+            for (int dy = 0; dy < min(cellSize, imGray.rows - y); ++dy)
+            {
+                for (int dx = 0; dx < min(cellSize, imGray.cols - x); ++dx)
+                {
+                    cv::Point2f currPixel(x + dx, y + dy);
+                    if ((int)imMask.at<uchar>(currPixel.y, currPixel.x) == 1)
+                    {
+                        int potential = 0;
+                        ComputePixelPotential(potential, currPixel, imGray);
+                        if (potential > maxPotential)
+                        {
+                            maxPotential = potential;
+                            bestPixel = currPixel;
+                        }
+                    }
+                    if (maxPotential > threshold) break;
+                }
+                if (maxPotential > threshold) break;
+            }
+
+            if (maxPotential != -1 && bestPixel.x > 0 && bestPixel.y > 0 && bestPixel.x < imGray.cols && bestPixel.y < imGray.rows)
+            {
+                dynapoints.push_back(cv::Point2f(bestPixel.x, bestPixel.y));
+            }
+        }
+    }
+}
+
+
+void Tracking::ClusterWithDBSCAN(std::map<int, std::vector<cv::Point3f>>& clusters, const std::vector<cv::Point3f>& points, float eps, int minPts)
+{   
+    int clusterId = 0, level = 1;
+    float range = 0.5, minSize = 20, step = 0.1;
+    std::vector<int> clusterIds(points.size(), -2);
+    std::vector<cv::Point3f> tempPoints;
+    std::vector<cv::Point3f> segmentedPoints;
+    std::vector<cv::Point3f> sortedPoints = points;
+
+    std::sort(sortedPoints.begin(), sortedPoints.end(), [](const cv::Point3f& a, const cv::Point3f& b)
+    {
+        return a.z < b.z;
+    });
+
+    for (size_t i = 0; i < sortedPoints.size(); ++i)
+    {
+        const auto& point = sortedPoints[i];
+        bool addPoint = true;
+
+        if (!tempPoints.empty() && ((point.z - tempPoints.back().z > step) || (point.z - tempPoints.front().z > range)))
+            addPoint = false;
+
+        if (addPoint) tempPoints.push_back(point);
+        else
+        {
+            if (tempPoints.size() > minSize)
+            {
+                for (auto& point : tempPoints) point.z = 200 * level;
+                level++;
+                segmentedPoints.insert(segmentedPoints.end(), tempPoints.begin(), tempPoints.end());
+            }
+            tempPoints.clear();
+            tempPoints.push_back(point);
+        }
+    }
+    if(segmentedPoints.size() == 0) segmentedPoints = points;
+
+    // ==================== Cluster Based on 3D Points ====================
+    auto regionQuery = [&](int idx) -> std::vector<int>
+    {
+        std::vector<int> neighbors;
+        for (size_t i = 0; i < segmentedPoints.size(); ++i)
+        {
+            if (cv::norm(segmentedPoints[idx] - segmentedPoints[i]) < eps)
+            {
+                neighbors.push_back(i);
+            }
+        }
+        return neighbors;
+    };
+
+    // Main DBSCAN logic
+    for (size_t i = 0; i < segmentedPoints.size(); ++i)
+    {
+        if (clusterIds[i] != -2) continue; // Skip if already visited
+
+        auto neighbors = regionQuery(i);
+        if (neighbors.size() < minPts)
+        {
+            clusterIds[i] = -1; // Mark as noise
+        }
+        else
+        {
+            clusterId++; // Next cluster
+            for (size_t j = 0; j < neighbors.size(); ++j)
+            {
+                int neighIdx = neighbors[j];
+                if (clusterIds[neighIdx] == -1) clusterIds[neighIdx] = clusterId; // Change noise to border point
+                if (clusterIds[neighIdx] != -2) continue; // Skip if already visited
+
+                clusterIds[neighIdx] = clusterId;
+                auto newNeighbors = regionQuery(neighIdx);
+                if (newNeighbors.size() >= minPts) neighbors.insert(neighbors.end(), newNeighbors.begin(), newNeighbors.end());
+            }
+        }
+    }
+
+    for (size_t i = 0; i < segmentedPoints.size(); ++i)
+    {
+        if (clusterIds[i] > 0) clusters[clusterIds[i]].push_back(segmentedPoints[i]);
+    }
+}
+
+
+void Tracking::CreateMaskFromClusters(const std::map<int, std::vector<cv::Point3f>>& clusters)
+{
+    cv::Mat hullMask = cv::Mat::zeros(mImMask.rows, mImMask.cols, CV_8UC1);
+    for (const auto& cluster : clusters)
+    {
+        cv::Mat localMask = cv::Mat::zeros(mImMask.rows, mImMask.cols, CV_8UC1);
+        std::vector<float> pointsDepth;
+
+        if (cluster.second.size() > 1)
+        {
+            float minX = std::numeric_limits<float>::max(), minY = std::numeric_limits<float>::max();
+            float maxX = std::numeric_limits<float>::lowest(), maxY = std::numeric_limits<float>::lowest();
+
+            // Find the bounding box coordinates
+            for (const cv::Point3f& pt : cluster.second)
+            {
+                minX = std::min(minX, pt.x);
+                maxX = std::max(maxX, pt.x);
+                minY = std::min(minY, pt.y);
+                maxY = std::max(maxY, pt.y);
+
+                float depth = mImDepth2.at<float>(pt.y, pt.x);
+                if(depth >= 0.05) pointsDepth.push_back(depth);
+            }
+
+            // Define the corners of the rectangle
+            cv::Point topLeft(static_cast<int>(minX), static_cast<int>(minY));
+            cv::Point bottomRight(static_cast<int>(maxX), static_cast<int>(maxY));
+
+            float width = bottomRight.x - topLeft.x;
+            float height = bottomRight.y - topLeft.y;
+            if(width < 50 || height < 50) continue;
+
+            cv::Size maskSize = localMask.size();
+            int increaseWidth = 15;
+            int increaseHeight = 15;
+            cv::Point adjustedTopLeft = cv::Point(
+                std::max(0, topLeft.x - increaseWidth),
+                std::max(0, topLeft.y - increaseHeight));
+            cv::Point adjustedBottomRight = cv::Point(
+                std::min(maskSize.width, bottomRight.x + increaseWidth),
+                std::min(maskSize.height, bottomRight.y + increaseHeight));
+
+            // Draw the rectangle on the mask
+            cv::rectangle(localMask, adjustedTopLeft, adjustedBottomRight, cv::Scalar(1), cv::FILLED);
+            cv::rectangle(hullMask, adjustedTopLeft, adjustedBottomRight, cv::Scalar(1), cv::FILLED); // Assuming hullMask is a cv::Mat where you want to draw the final rectangle
+        }
+        else continue;
+
+        std::sort(pointsDepth.begin(), pointsDepth.end());
+        float value = pointsDepth[pointsDepth.size() / 2];
+        // float sum = std::accumulate(pointsDepth.begin(), pointsDepth.end(), 0.0);
+        // float value = pointsDepth.empty() ? 0.0 : sum / pointsDepth.size();
+
+        for (int y = 0; y < localMask.rows; y++)
+		{
+			for (int x = 0; x < localMask.cols; x++)
+			{
+                int val = (int)localMask.at<uchar>(y, x);
+				if (val == 1 && std::abs(mImDepth2.at<float>(y, x) - value) > 0.3)
+                {
+                    localMask.at<uchar>(y, x) = 0;
+                }
+			}
+		}
+
+        // Find connected components
+        cv::Mat labels, stats, centroids;
+        int nLabels = cv::connectedComponentsWithStats(localMask, labels, stats, centroids, 4, CV_32S);
+
+        // Identify the largest component
+        int largestLabel = 0;
+        int largestArea = 0;
+        for (int label = 1; label < nLabels; ++label)
+        {
+            int area = stats.at<int>(label, cv::CC_STAT_AREA);
+            if (area > largestArea)
+            {
+                largestArea = area;
+                largestLabel = label;
+            }
+        }
+
+        for (int y = 0; y < labels.rows; ++y)
+        {
+            for (int x = 0; x < labels.cols; ++x)
+            {
+                if (labels.at<int>(y, x) == largestLabel) mImMask.at<uchar>(y, x) = 1;
+            }
+        }
+    }
+
+    int dilationSize = 3;
+	cv::Mat dilationElement = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(2 * dilationSize + 1, 2 * dilationSize + 1), cv::Point(dilationSize, dilationSize));
+	cv::dilate(mImMask, mImMask, dilationElement);
+}
+
 
 #ifdef REGISTER_LOOP
 void Tracking::RequestStop()

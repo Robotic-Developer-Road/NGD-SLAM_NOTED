@@ -36,6 +36,7 @@
 #include "System.h"
 #include "ImuTypes.h"
 #include "Settings.h"
+#include "YOLO.h"
 
 #include "GeometricCamera.h"
 
@@ -52,6 +53,7 @@ class LocalMapping;
 class LoopClosing;
 class System;
 class Settings;
+class YOLO;
 
 class Tracking
 {  
@@ -77,6 +79,7 @@ public:
 
     void SetLocalMapper(LocalMapping* pLocalMapper);
     void SetLoopClosing(LoopClosing* pLoopClosing);
+    void SetYOLO(YOLO* pYOLO);
     void SetViewer(Viewer* pViewer);
     void SetStepByStep(bool bSet);
     bool GetStepByStep();
@@ -138,8 +141,6 @@ public:
     Frame mCurrentFrame;
     Frame mLastFrame;
 
-    cv::Mat mImGray;
-
     // Initialization Variables (Monocular)
     std::vector<int> mvIniLastMatches;
     std::vector<int> mvIniMatches;
@@ -171,6 +172,24 @@ public:
     double t0IMU; // time-stamp of IMU initialization
     bool mFastInit = false;
 
+    // --------- For Optical Method ---------
+    bool mbStartOpticalFlow = false;
+    bool mbNeedKF = false;
+    int mFrameNum = 1;
+    double mTotalTrackTime = 0.0;
+    Frame mLastFrameLK;
+    cv::Mat mImGrayLastLK;
+    Sophus::SE3f mVelocityLK;
+    list<Sophus::SE3f> mlRelativeFramePosesLK;
+
+    // --------- For Dynamic ---------
+    cv::Mat mImGray;
+    cv::Mat mImRGB;
+    cv::Mat mImMask;
+    cv::Mat mImDepth;
+    cv::Mat mImDepth2;
+    cv::Mat mImGrayLastKey;
+    cv::Mat mImMaskLastKey;
 
     vector<MapPoint*> GetLocalMapMPS();
 
@@ -211,6 +230,8 @@ protected:
     bool TrackWithMotionModel();
     bool PredictStateIMU();
 
+    bool TrackWithOpticalFlow();
+
     bool Relocalization();
 
     void UpdateLocalMap();
@@ -222,6 +243,13 @@ protected:
 
     bool NeedNewKeyFrame();
     void CreateNewKeyFrame();
+
+    // For Dynamic Mode Functions
+    void PredictCurrentMask();
+    void ComputePixelPotential(int& potential, const cv::Point2f& pixel, const cv::Mat& imGray);
+    void ExtractDynaPoints(std::vector<cv::Point2f>& dynapoints, const cv::Mat& imGray, const cv::Mat& imMask, int cellSize);
+    void ClusterWithDBSCAN(std::map<int, std::vector<cv::Point3f>>& clusters, const std::vector<cv::Point3f>& points, float eps, int minPts);
+    void CreateMaskFromClusters(const std::map<int, std::vector<cv::Point3f>>& clusters);
 
     // Perform preintegration from last frame
     void PreintegrateIMU();
@@ -256,10 +284,12 @@ protected:
     //Other Thread Pointers
     LocalMapping* mpLocalMapper;
     LoopClosing* mpLoopClosing;
+    YOLO* mpYOLO; // -----------------------------------------------------------------------------------------
 
     //ORB
     ORBextractor* mpORBextractorLeft, *mpORBextractorRight;
     ORBextractor* mpIniORBextractor;
+    ORBextractor* mpORBextractorDyna, *mpORBextractorTmp;
 
     //BoW
     ORBVocabulary* mpORBVocabulary;

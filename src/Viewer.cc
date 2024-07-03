@@ -338,6 +338,20 @@ void Viewer::Run()
         cv::imshow("ORB-SLAM3: Current Frame",toShow);
         cv::waitKey(mT);
 
+        cv::Mat imLK = mpFrameDrawer->DrawLKFrame(1.0);
+        if(!imLK.empty())
+        {
+            cv::imshow("NGD-SLAM: Current Frame",imLK);
+            cv::waitKey(mT);
+        }
+
+        cv::Mat imMask = mpFrameDrawer->DrawMaskFrame(1.0);
+        if(!imMask.empty())
+        {
+            cv::imshow("Predicted Mask",imMask);
+            cv::waitKey(mT);
+        }
+
         if(menuReset)
         {
             menuShowGraph = true;

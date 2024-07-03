@@ -421,6 +421,9 @@ public:
     std::vector <KeyFrame*> mvpLoopCandKFs;
     std::vector <KeyFrame*> mvpMergeCandKFs;
 
+    // MapPoints associated to keypoints
+    std::vector<MapPoint*> mvpMapPoints;
+
     //bool mbHasHessian;
     //cv::Mat mHessianPose;
 
@@ -446,7 +449,7 @@ protected:
     IMU::Bias mImuBias;
 
     // MapPoints associated to keypoints
-    std::vector<MapPoint*> mvpMapPoints;
+    // std::vector<MapPoint*> mvpMapPoints;
     // For save relation without pointer, this is necessary for save/load function
     std::vector<long long int> mvBackupMapPointsId;
 

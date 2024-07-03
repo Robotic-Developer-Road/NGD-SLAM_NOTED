@@ -2009,6 +2009,55 @@ namespace ORB_SLAM3
         return nmatches;
     }
 
+    int ORBmatcher::SearchByOpticalFlow(Frame &CurrentFrame, const Frame &LastFrame, const cv::Mat CurrImg, const cv::Mat LastImg, const cv::Mat imMask)
+    {   
+        std::vector<cv::Point2f> lastKeyPoints, currKeyPoints;
+        std::vector<MapPoint*> lastMapPoints;
+        std::vector<unsigned char> status;
+        std::vector<float> error;
+        int nmatches = 0;
+        
+        CurrentFrame.mvKeysUn.clear();
+        CurrentFrame.mvpMapPoints.clear();
+
+        // Get key points and map points from last frame
+        for (int i=0; i < LastFrame.mvpMapPoints.size(); ++i)
+        {
+            if (LastFrame.mvpMapPoints[i] && LastFrame.mvpMapPoints[i]->Observations()>=3)
+            {   
+                lastKeyPoints.push_back(LastFrame.mvKeysUn[i].pt); // Convert cv::KeyPoint to cv::Point2f
+                lastMapPoints.push_back(LastFrame.mvpMapPoints[i]);
+            }
+        }
+
+        if (LastImg.channels() > 1)
+            cv::cvtColor(LastImg, LastImg, cv::COLOR_BGR2GRAY);
+
+        if (CurrImg.channels() > 1)
+            cv::cvtColor(CurrImg, CurrImg, cv::COLOR_BGR2GRAY);
+
+        // Find matches using LK optical flow
+        cv::calcOpticalFlowPyrLK(LastImg, CurrImg, lastKeyPoints, currKeyPoints, status, error);
+        
+        // Remove points without match
+        for (size_t i = 0; i < currKeyPoints.size(); i++)
+        {
+            if (status[i] && imMask.at<uchar>(currKeyPoints[i].y, currKeyPoints[i].x) == 0)
+            {
+                cv::KeyPoint kp(currKeyPoints[i], 1.0f);
+                CurrentFrame.mvKeysUn.push_back(kp);
+                CurrentFrame.mvpMapPoints.push_back(lastMapPoints[i]);
+                nmatches++;
+            }
+        }
+
+        // Update CurrentFrame attributes
+        CurrentFrame.N = nmatches;
+
+        return nmatches;
+    }
+
+
     void ORBmatcher::ComputeThreeMaxima(vector<int>* histo, const int L, int &ind1, int &ind2, int &ind3)
     {
         int max1=0;

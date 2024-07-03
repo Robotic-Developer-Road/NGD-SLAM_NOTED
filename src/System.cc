@@ -213,9 +213,14 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     mpLoopCloser = new LoopClosing(mpAtlas, mpKeyFrameDatabase, mpVocabulary, mSensor!=MONOCULAR, activeLC); // mSensor!=MONOCULAR);
     mptLoopClosing = new thread(&ORB_SLAM3::LoopClosing::Run, mpLoopCloser);
 
+    // YOLO ------------------------------------------------------------------------------------
+    mpYOLO = new YOLO(0.5, 0.4, 320, 320, "./Thirdparty/YOLO/coco.names", "./Thirdparty/YOLO/yolo-fastest-xl.cfg", "./Thirdparty/YOLO/yolo-fastest-xl.weights", "yolo-fastest");
+    mptYOLO = new thread(&ORB_SLAM3::YOLO::Run, mpYOLO);
+
     //Set pointers between threads
     mpTracker->SetLocalMapper(mpLocalMapper);
     mpTracker->SetLoopClosing(mpLoopCloser);
+    mpTracker->SetYOLO(mpYOLO);
 
     mpLocalMapper->SetTracker(mpTracker);
     mpLocalMapper->SetLoopCloser(mpLoopCloser);
@@ -523,6 +528,7 @@ void System::Shutdown()
 
     mpLocalMapper->RequestFinish();
     mpLoopCloser->RequestFinish();
+    mpYOLO->RequestFinish();
     /*if(mpViewer)
     {
         mpViewer->RequestFinish();

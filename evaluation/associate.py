@@ -95,6 +95,8 @@ def associate(first_list, second_list,offset,max_difference):
     matches = []
     for diff, a, b in potential_matches:
         if a in first_keys and b in second_keys:
+            first_keys = list(first_keys)
+            second_keys = list(second_keys)
             first_keys.remove(a)
             second_keys.remove(b)
             matches.append((a, b))
@@ -115,8 +117,8 @@ if __name__ == '__main__':
     parser.add_argument('--max_difference', help='maximally allowed time difference for matching entries (default: 0.02)',default=0.02)
     args = parser.parse_args()
 
-    first_list = read_file_list(args.first_file)
-    second_list = read_file_list(args.second_file)
+    first_list = read_file_list(args.first_file, remove_bounds=False)
+    second_list = read_file_list(args.second_file, remove_bounds=False)
 
     matches = associate(first_list, second_list,float(args.offset),float(args.max_difference))    
 
@@ -126,5 +128,10 @@ if __name__ == '__main__':
     else:
         for a,b in matches:
             print("%f %s %f %s"%(a," ".join(first_list[a]),b-float(args.offset)," ".join(second_list[b])))
-            
+    
+    output_filename = "./Examples/RGB-D/associations/association.txt"
+
+    with open(output_filename, 'w') as file:
+        for a,b in matches:
+            file.write("%f %s %f %s\n" % (a, " ".join(first_list[a]), b - float(args.offset), " ".join(second_list[b])))
         

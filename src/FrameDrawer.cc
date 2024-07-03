@@ -326,7 +326,25 @@ cv::Mat FrameDrawer::DrawRightFrame(float imageScale)
     return imWithInfo;
 }
 
+cv::Mat FrameDrawer::DrawLKFrame(float imageScale)
+{
+    return mImLK;
+}
 
+void FrameDrawer:: SetLKFrame(cv::Mat LKFrame)
+{
+    mImLK = LKFrame;
+}
+
+cv::Mat FrameDrawer::DrawMaskFrame(float imageScale)
+{
+    return mImMask;
+}
+
+void FrameDrawer:: SetMaskFrame(cv::Mat maskFrame)
+{
+    mImMask = maskFrame;
+}
 
 void FrameDrawer::DrawTextInfo(cv::Mat &im, int nState, cv::Mat &imText)
 {

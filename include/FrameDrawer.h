@@ -49,6 +49,11 @@ public:
     // Draw last processed frame.
     cv::Mat DrawFrame(float imageScale=1.f);
     cv::Mat DrawRightFrame(float imageScale=1.f);
+    cv::Mat DrawLKFrame(float imageScale=1.f);
+    cv::Mat DrawMaskFrame(float imageScale=1.f);
+
+    void SetLKFrame(cv::Mat LKFrame);
+    void SetMaskFrame(cv::Mat maskFrame);
 
     bool both;
 
@@ -57,7 +62,7 @@ protected:
     void DrawTextInfo(cv::Mat &im, int nState, cv::Mat &imText);
 
     // Info of the frame to be drawn
-    cv::Mat mIm, mImRight;
+    cv::Mat mIm, mImRight, mImLK, mImMask;
     int N;
     vector<cv::KeyPoint> mvCurrentKeys,mvCurrentKeysRight;
     vector<bool> mvbMap, mvbVO;

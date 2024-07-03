@@ -39,6 +39,7 @@
 #include "Viewer.h"
 #include "ImuTypes.h"
 #include "Settings.h"
+#include "YOLO.h"
 
 
 namespace ORB_SLAM3
@@ -79,6 +80,7 @@ class Tracking;
 class LocalMapping;
 class LoopClosing;
 class Settings;
+class YOLO;
 
 class System
 {
@@ -227,6 +229,9 @@ private:
     // The viewer draws the map and the current camera pose. It uses Pangolin.
     Viewer* mpViewer;
 
+    // YOLO
+    YOLO* mpYOLO;
+
     FrameDrawer* mpFrameDrawer;
     MapDrawer* mpMapDrawer;
 
@@ -235,6 +240,7 @@ private:
     std::thread* mptLocalMapping;
     std::thread* mptLoopClosing;
     std::thread* mptViewer;
+    std::thread* mptYOLO;
 
     // Reset flag
     std::mutex mMutexReset;
