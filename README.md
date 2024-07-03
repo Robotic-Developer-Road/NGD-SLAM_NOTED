@@ -1,7 +1,15 @@
 # NGD-SLAM
 
-This is a visual SLAM system designed for dynamic environments, based on the [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) framework. It runs in real-time on a single laptop CPU without compromising tracking accuracy [[Demo](https://www.bilibili.com/video/BV1XKT5eaEsT/)] [[Paper](https://arxiv.org/abs/2405.07392)].
+论文：arXiv:2405.07392
+代码：https://github.com/yuhaozhang7/NGD-SLAM
 
+利用先前的分割结果快速为当前帧的动态物体生成 mask，使跟踪线程不必等待神经网络的输出。
+混合使用光流与 ORB 特征进行静态关键点跟踪。
+深度模型直接用 OpenCV 读取、推理，环境配置与 ORB-SLAM3 完全一致（已在 Ubuntu20.04 与 22.04 测试）。
+
+<iframe src="//player.bilibili.com/player.html?isOutside=true&aid=112515515420416&bvid=BV1XKT5eaEsT&cid=500001562367894&p=2&high_quality=1&danmaku=0&autoplay=0" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true" sandbox="allow-top-navigation allow-same-origin allow-forms allow-scripts" width="100%" height="600"></iframe>
+
+This is a visual SLAM system designed for dynamic environments, based on the [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) framework. It runs in real-time on a single laptop CPU without compromising tracking accuracy [[Demo](https://www.bilibili.com/video/BV1XKT5eaEsT/)] [[Paper](https://arxiv.org/abs/2405.07392)].
 
 # 1. Prerequisites
 The system is tested on **Ubuntu 20.04** and **22.04**, and it should be easy to compile in other platforms. A powerful computer will provide more stable and accurate results.
