@@ -1,13 +1,16 @@
-# NGD-SLAM
+# NGD-SLAM_NOTED
 
-论文：arXiv:2405.07392
-代码：https://github.com/yuhaozhang7/NGD-SLAM
+# Acknowledgement
 
-利用先前的分割结果快速为当前帧的动态物体生成 mask，使跟踪线程不必等待神经网络的输出。
-混合使用光流与 ORB 特征进行静态关键点跟踪。
-深度模型直接用 OpenCV 读取、推理，环境配置与 ORB-SLAM3 完全一致（已在 Ubuntu20.04 与 22.04 测试）。
+This project is based on the [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) framework and [NGD-SLAM](https://github.com/yuhaozhang7/NGD-SLAM), Thanks to the authors of the above projects，This project merged the main branch code of the NGD-SLAM project based on the master branch of ORB_SLAM3 to facilitate finding the modifications and subsequent annotations and understanding.
 
-<iframe src="//player.bilibili.com/player.html?isOutside=true&aid=112515515420416&bvid=BV1XKT5eaEsT&cid=500001562367894&p=2&high_quality=1&danmaku=0&autoplay=0" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true" sandbox="allow-top-navigation allow-same-origin allow-forms allow-scripts" width="100%" height="600"></iframe>
+# Brief Introduction
+Paper: arXiv:2405.07392
+Code: https://github.com/yuhaozhang7/NGD-SLAM
+
+Use the previous segmentation results to quickly generate a mask for the dynamic object in the current frame, so that the tracking thread does not have to wait for the output of the neural network.
+Mix optical flow and ORB features for static key point tracking.
+The deep model is directly read and inferred using OpenCV, and the environment configuration is exactly the same as ORB-SLAM3 (tested on Ubuntu20.04 and 22.04).
 
 This is a visual SLAM system designed for dynamic environments, based on the [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) framework. It runs in real-time on a single laptop CPU without compromising tracking accuracy [[Demo](https://www.bilibili.com/video/BV1XKT5eaEsT/)] [[Paper](https://arxiv.org/abs/2405.07392)].
 
@@ -47,7 +50,7 @@ git clone https://github.com/yuhaozhang7/NGD-SLAM.git NGD-SLAM
 
 It provides a script `build.sh` to build the libraries. Please make sure you have installed all required dependencies. Execute:
 ```
-cd NGD-SLAM
+cd NGD-SLAM_NOTED
 chmod +x build.sh
 ./build.sh
 ```
@@ -56,15 +59,4 @@ chmod +x build.sh
 [TUM dataset](https://cvg.cit.tum.de/data/datasets/rgbd-dataset/download) includes sequences that are captured using an RGB-D camera in dynamic environments. Download the desired sequence and uncompress it. Below is an example command for the *freiburg3_walking_xyz* sequence:
 ```
 ./Examples/RGB-D/rgbd_tum ./Vocabulary/ORBvoc.txt ./Examples/RGB-D/TUM3.yaml ./path/to/TUM/rgbd_dataset_freiburg3_walking_xyz ./Examples/RGB-D/associations/fr3_walk_xyz.txt
-```
-
-# 4. Citation
-If you find this work to be useful in your research, please consider citing:
-```bibtex
-@article{zhang2024ngdslam,
-  title={{NGD-SLAM}: Towards Real-Time SLAM for Dynamic Environments without GPU},
-  author={Zhang, Yuhao},
-  journal={arXiv preprint arXiv:2405.07392},
-  year={2024}
-}
 ```
