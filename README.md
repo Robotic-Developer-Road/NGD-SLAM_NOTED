@@ -5,8 +5,8 @@
 This project is based on the [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) framework and [NGD-SLAM](https://github.com/yuhaozhang7/NGD-SLAM), Thanks to the authors of the above projects，This project merged the main branch code of the NGD-SLAM project based on the master branch of ORB_SLAM3 to facilitate finding the modifications and subsequent annotations and understanding.
 
 # Brief Introduction
-Paper: arXiv:2405.07392
-Code: https://github.com/yuhaozhang7/NGD-SLAM
+- Paper: arXiv:2405.07392
+- Code: https://github.com/yuhaozhang7/NGD-SLAM
 
 Use the previous segmentation results to quickly generate a mask for the dynamic object in the current frame, so that the tracking thread does not have to wait for the output of the neural network.
 Mix optical flow and ORB features for static key point tracking.
