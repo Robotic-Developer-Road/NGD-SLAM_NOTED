@@ -2011,6 +2011,7 @@ namespace ORB_SLAM3
 
     int ORBmatcher::SearchByOpticalFlow(Frame &CurrentFrame, const Frame &LastFrame, const cv::Mat CurrImg, const cv::Mat LastImg, const cv::Mat imMask)
     {   
+        // Initialize An Array Of State Values
         std::vector<cv::Point2f> lastKeyPoints, currKeyPoints;
         std::vector<MapPoint*> lastMapPoints;
         std::vector<unsigned char> status;

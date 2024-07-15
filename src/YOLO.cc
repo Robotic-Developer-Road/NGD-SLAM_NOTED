@@ -3,6 +3,11 @@
 namespace ORB_SLAM3
 {
 
+	/**
+	 * @description: constructor  of yolo
+	 * @param {type} image size, classes file, model configuration, model weights, conf and nms threshold
+	 * @return {*}
+	 */	
 	YOLO::YOLO(const float confThresholdIn, const float nmsThresholdIn, const int inpWidthIn, const int inpHeightIn,
            	   const std::string& classesFileIn, const std::string& modelConfigurationIn, const std::string& modelWeightsIn, const std::string& netnameIn):
 		   confThreshold(confThresholdIn), nmsThreshold(nmsThresholdIn), inpWidth(inpWidthIn), inpHeight(inpHeightIn),
@@ -20,6 +25,13 @@ namespace ORB_SLAM3
 		net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
 	}
 
+	/**
+	 * @description: postprocess the output image of yolo infer
+	 * @param {Mat&} imRGB
+	 * @param {Mat&} imDepth
+	 * @param {float} maxBoxRatio
+	 * @return {*}
+	 */	
 	cv::Mat YOLO::postprocess(const cv::Mat& imRGB, const cv::Mat& imDepth, const std::vector<cv::Mat>& outs, const float maxBoxRatio)   // Remove the bounding boxes with low confidence using non-maxima suppression
 	{
 		std::vector<int> classIds;
@@ -163,6 +175,13 @@ namespace ORB_SLAM3
 		return globalMask;
 	}
 
+	/**
+	 * @description: infer the mask from the output of the YOLO network once
+	 * @param {Mat&} imRGB
+	 * @param {Mat&} imDepth
+	 * @param {float} maxBoxRatio
+	 * @return {*}
+	 */	
 	cv::Mat YOLO::Detect(const cv::Mat& imRGB, const cv::Mat& imDepth, const float maxBoxRatio)
 	{
 		cv::Mat blob;
@@ -212,6 +231,10 @@ namespace ORB_SLAM3
 		return returnedOutput;
 	}
 
+	/**
+	 * @description: a loop of detecting with the YOLO network
+	 * @return {*}
+	 */	
 	void YOLO::Run()
 	{
 		int counter = 0;

@@ -338,6 +338,7 @@ void Viewer::Run()
         cv::imshow("ORB-SLAM3: Current Frame",toShow);
         cv::waitKey(mT);
 
+        // Lk Optical Flow Diagram
         cv::Mat imLK = mpFrameDrawer->DrawLKFrame(1.0);
         if(!imLK.empty())
         {
@@ -345,6 +346,7 @@ void Viewer::Run()
             cv::waitKey(mT);
         }
 
+        // Predicted Mask Diagram
         cv::Mat imMask = mpFrameDrawer->DrawMaskFrame(1.0);
         if(!imMask.empty())
         {

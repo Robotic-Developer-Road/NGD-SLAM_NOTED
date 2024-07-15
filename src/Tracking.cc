@@ -1528,6 +1528,8 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB, const cv::Mat &imD, c
 {
     mImGray = imRGB;
     mImDepth = imD;
+
+    // Full Deep Copy Apply For New Space In Memory
     mImRGB = imRGB.clone();
     mImDepth2 = imD.clone();
 
@@ -3077,6 +3079,7 @@ bool Tracking::TrackWithOpticalFlow()
     cv::Mat R_vector, R;
     Sophus::SE3f initTcw = mVelocityLK * mLastFrameLK.GetPose();
 
+    // Camera Rotation Matrix Translation Matrix In World Coordinate System
     Eigen::Matrix3f r_eigen = initTcw.rotationMatrix();
     Eigen::Vector3f t_eigen = initTcw.translation();
 
@@ -3086,7 +3089,8 @@ bool Tracking::TrackWithOpticalFlow()
     std::memcpy(R_matrix.data, r_eigen.data(), 3 * 3 * sizeof(float));
     std::memcpy(T.data, t_eigen.data(), 3 * sizeof(float));
     cv::Rodrigues(R_matrix, R_vector);
-
+    
+    // Estimate The Camera Pose
     cv::solvePnPRansac(currMapPoints, currKeyPoints, mK, mDistCoef , R_vector, T, false, 100, 5, 0.99, ransacInlier, cv::SOLVEPNP_ITERATIVE);
     cv::Rodrigues(R_vector, R);
 
@@ -3377,7 +3381,8 @@ bool Tracking::NeedNewKeyFrame()
         c4=true;
     else
         c4=false;
-
+    
+    // Condition 5: start the OpticalFLOW and ...etc.
     bool c5 = mbStartOpticalFlow && (mnMatchesInliers<20 || (mnMatchesInliers<75 && mCurrentFrame.mnId>mnLastKeyFrameId+5) || (mnMatchesInliers<300 && mCurrentFrame.mnId>mnLastKeyFrameId+30));
 
     if(((c1a||c1b||c1c) && c2)||c3 ||c4 ||c5)
@@ -3408,7 +3413,6 @@ bool Tracking::NeedNewKeyFrame()
     else
         return false;
 }
-
 
 void Tracking::CreateNewKeyFrame()
 {
@@ -4282,7 +4286,6 @@ float Tracking::GetImageScale()
     return mImageScale;
 }
 
-
 void Tracking::PredictCurrentMask()
 {
     std::vector<cv::KeyPoint> lastKeyPoints;
@@ -4294,7 +4297,7 @@ void Tracking::PredictCurrentMask()
 
     mImMask = cv::Mat::zeros(mImMaskLastKey.size(), CV_8UC1); // Static background is 0
 
-    // Apply erosion for last key frame mask
+    // Apply erosion for last key frame mask，Morphological Method Processing
     int erosionSize = 5;
     cv::Mat erosionElement = cv::getStructuringElement(cv::MORPH_RECT,
                                                        cv::Size(2 * erosionSize + 1, 2 * erosionSize + 1),
@@ -4409,7 +4412,7 @@ void Tracking::ExtractDynaPoints(std::vector<cv::Point2f>& dynapoints, const cv:
     }
 }
 
-
+// Use DBSCAN To Complete Clustering
 void Tracking::ClusterWithDBSCAN(std::map<int, std::vector<cv::Point3f>>& clusters, const std::vector<cv::Point3f>& points, float eps, int minPts)
 {   
     int clusterId = 0, level = 1;
